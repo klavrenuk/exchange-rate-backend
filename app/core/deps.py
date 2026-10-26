@@ -1,5 +1,5 @@
 from typing import AsyncGenerator
-from app.db.base import AsyncSessionLocal
+from app.core.base import AsyncSessionLocal
 
 
 async def get_session() -> AsyncGenerator:

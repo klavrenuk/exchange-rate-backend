@@ -1,7 +1,7 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, UniqueConstraint, Index, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, UniqueConstraint, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.db.base import Base
+from app.core.base import Base
 
 
 class Currency(Base):
@@ -28,7 +28,6 @@ class Rate(Base):
     __tablename__ = "rates"
     __table_args__ = (
         UniqueConstraint("currency_id", "date", name="uq_rate_currency_date"),
-        Index("ix_rates_date", "date"),
     )
 
     id = Column(Integer, primary_key=True)
@@ -75,7 +74,7 @@ class JobRun(Base):
 
     id = Column(Integer, primary_key=True)
     job_name = Column(String(64), index=True)
-    status = Column(String(32), index=True)  # running/success/failed/skipped
+    status = Column(String(32), index=True)
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     finished_at = Column(DateTime(timezone=True))
     duration_ms = Column(Integer)

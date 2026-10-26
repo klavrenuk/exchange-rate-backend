@@ -1,4 +1,4 @@
-from app.db.base import AsyncSessionLocal
+﻿from app.core.base import AsyncSessionLocal
 from app.services.nbrb import loader, report
 from app.services.iea import downloader, sender
 
@@ -42,7 +42,7 @@ async def iea_check_job():
 async def run_all_manual():
     await nbrb_update_job()
     try:
-        from app.db.base import AsyncSessionLocal
+        from app.core.base import AsyncSessionLocal
         from app.services.nbrb import report
         async with AsyncSessionLocal() as session:
             try:

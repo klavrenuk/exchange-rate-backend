@@ -1,8 +1,8 @@
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+﻿from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.core.config import settings
 from app.tasks import jobs
-from app.db.base import AsyncSessionLocal
+from app.core.base import AsyncSessionLocal
 import pytz
 
 

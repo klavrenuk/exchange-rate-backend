@@ -1,10 +1,10 @@
-import os
+﻿import os
 import re
 from urllib.parse import urlparse
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models import Chart, JobRun
+from app.common.models import Chart, JobRun
 from app.services.iea.parser import IEAParser
 from app.core.config import settings
 import json
@@ -57,6 +57,7 @@ async def download_new_charts(session: AsyncSession):
         res = await session.execute(select(Chart).where(Chart.downloaded_at.is_(None)))
         charts = res.scalars().all()
         downloaded = 0
+        failed = []
         for chart in charts:
             try:
                 os.makedirs(os.path.join(settings.CHART_DIR, chart.slug), exist_ok=True)
@@ -89,14 +90,22 @@ async def download_new_charts(session: AsyncSession):
                 chart.has_files = True
                 chart.local_path = os.path.join(settings.CHART_DIR, chart.slug)
                 downloaded += 1
-            except Exception:
+            except Exception as ex:
+                failed.append({"slug": chart.slug, "url": chart.url, "error": str(ex)[:300]})
                 continue
         await session.commit()
-        job.status = "success"
         job.finished_at = datetime.utcnow()
         if job.started_at:
             job.duration_ms = int((job.finished_at - job.started_at).total_seconds() * 1000)
-        job.details_json = json.dumps({"downloaded": downloaded})
+        details = {"downloaded": downloaded, "failed": len(failed)}
+        if failed:
+            details["errors"] = failed[:20]
+        job.details_json = json.dumps(details)
+        if failed and downloaded == 0:
+            job.status = "failed"
+            job.error_text = f"All {len(failed)} charts failed; first error: {failed[0]['error']}"
+        else:
+            job.status = "success"
         await session.commit()
     except Exception as e:
         job.status = "failed"

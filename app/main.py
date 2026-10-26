@@ -1,10 +1,12 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from app.core.logging import setup_logging
-from app.db.init_db import init_db
+from app.core.init_db import init_db
 from app.api.v1.router import api_router
 from app.tasks import scheduler
+import os
 
 logger = setup_logging()
 
@@ -28,5 +30,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+os.makedirs("./data/charts", exist_ok=True)
+os.makedirs("./data/reports", exist_ok=True)
+app.mount("/files", StaticFiles(directory="./data"), name="files")
 
 app.include_router(api_router)

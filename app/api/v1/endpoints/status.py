@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends
+﻿from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from app.db.deps import get_session
-from app.db.models import Currency, Rate, Chart, SentChart, JobRun
+from app.core.deps import get_session
+from app.common.models import Currency, Rate, Chart, SentChart, JobRun
 
 router = APIRouter()
 

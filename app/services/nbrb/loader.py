@@ -1,9 +1,9 @@
-import json
+﻿import json
 from datetime import date, datetime, timedelta
 from typing import Optional
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models import Currency, Rate, JobRun, TaskState
+from app.common.models import Currency, Rate, JobRun, TaskState
 from app.services.nbrb.client import NBRBClient
 from app.core.config import settings
 
@@ -94,6 +94,7 @@ async def update_today(session: AsyncSession, periodicity: int = 0):
         today = date.today()
         data = await client.get_rates_ondate(today.isoformat(), periodicity=periodicity)
         inserted = 0
+        updated = 0
         skipped = 0
         for item in data:
             cur_id = item.get("Cur_ID")
@@ -102,23 +103,33 @@ async def update_today(session: AsyncSession, periodicity: int = 0):
             if cur is None:
                 continue
             d = datetime.fromisoformat(item["Date"].replace("Z", "+00:00")).date()
+            new_rate = float(item.get("Cur_OfficialRate"))
+            new_scale = item.get("Cur_Scale") or cur.scale
+            new_abbr = item.get("Cur_Abbreviation") or cur.abbreviation
             res2 = await session.execute(select(Rate).where(and_(Rate.currency_id == cur.id, Rate.date == d)))
             exists = res2.scalar_one_or_none()
             if exists is not None:
-                skipped += 1
+                if exists.rate != new_rate or exists.scale != new_scale or exists.cur_abbreviation != new_abbr:
+                    exists.rate = new_rate
+                    exists.scale = new_scale
+                    exists.cur_abbreviation = new_abbr
+                    exists.cur_id_nbrb = cur_id
+                    updated += 1
+                else:
+                    skipped += 1
                 continue
             rate = Rate(
                 currency_id=cur.id,
                 date=d,
-                rate=float(item.get("Cur_OfficialRate")),
-                scale=item.get("Cur_Scale") or cur.scale,
-                cur_abbreviation=item.get("Cur_Abbreviation") or cur.abbreviation,
+                rate=new_rate,
+                scale=new_scale,
+                cur_abbreviation=new_abbr,
                 cur_id_nbrb=cur_id,
             )
             session.add(rate)
             inserted += 1
         await session.commit()
-        await log_job_end(session, job, "success", {"inserted": inserted, "skipped": skipped, "total": len(data), "date": today.isoformat()})
+        await log_job_end(session, job, "success", {"inserted": inserted, "updated": updated, "skipped": skipped, "total": len(data), "date": today.isoformat()})
     except Exception as e:
         await log_job_end(session, job, "failed", error_text=str(e))
         raise
@@ -142,6 +153,8 @@ async def load_history(session: AsyncSession, cur_abbr: Optional[str] = None, fr
         res = await session.execute(q)
         currencies = res.scalars().all()
         total_inserted = 0
+        ok_batches = 0
+        failed_batches = []
         for cur in currencies:
             if cur.cur_id_nbrb is None:
                 continue
@@ -158,8 +171,15 @@ async def load_history(session: AsyncSession, cur_abbr: Optional[str] = None, fr
                 cur_e = min(cur_s + timedelta(days=settings.NBRB_LOAD_BATCH_DAYS - 1), td)
                 try:
                     data = await client.get_rates_dynamics(cur.cur_id_nbrb, cur_s.isoformat(), cur_e.isoformat())
+                    ok_batches += 1
                 except Exception as ex:
-                    # log and continue
+                    failed_batches.append({
+                        "cur_abbr": cur.abbreviation,
+                        "cur_id_nbrb": cur.cur_id_nbrb,
+                        "from": cur_s.isoformat(),
+                        "to": cur_e.isoformat(),
+                        "error": str(ex)[:300],
+                    })
                     cur_s = cur_e + timedelta(days=1)
                     continue
                 for item in data:
@@ -179,7 +199,21 @@ async def load_history(session: AsyncSession, cur_abbr: Optional[str] = None, fr
                     total_inserted += 1
                 await session.commit()
                 cur_s = cur_e + timedelta(days=1)
-        await log_job_end(session, job, "success", {"inserted": total_inserted, "from": fd.isoformat(), "to": td.isoformat()})
+        details = {
+            "inserted": total_inserted,
+            "from": fd.isoformat(),
+            "to": td.isoformat(),
+            "ok_batches": ok_batches,
+            "failed_batches": len(failed_batches),
+        }
+        if failed_batches:
+            details["errors"] = failed_batches[:20]
+        status = "success"
+        error_text = None
+        if failed_batches and ok_batches == 0:
+            status = "failed"
+            error_text = f"All {len(failed_batches)} batches failed; first error: {failed_batches[0]['error']}"
+        await log_job_end(session, job, status, details, error_text)
     except Exception as e:
         await log_job_end(session, job, "failed", error_text=str(e))
         raise
